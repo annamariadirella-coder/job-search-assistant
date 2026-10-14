@@ -15,6 +15,8 @@ The applicant decides whether to apply and submits the application.
 
 [Fictional first application](examples/first-application.md) · [Morning scan setup](apps-script/README.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
+**Is the scan doing enough?** [Check coverage and deferred work](SCAN-COVERAGE.md). An optional offline audit reports counts without changing your scan or exposing vacancy content.
+
 ## What this project is today
 
 This package contains a reusable assistant instruction, an Evidence Bank template, a tracker template, a review checklist and an optional Google Apps Script morning scanner. It is a documented, human-guided workflow, not an autonomous application agent. The scanner runs only after you configure it in your own Google account.
@@ -69,3 +71,4 @@ The workflow requires human judgment and source verification. Exact quotations e
 ## License
 
 MIT. Copyright notices for the reused collector are retained. LinkedIn publication is a separate action; no post is sent by this project.
+

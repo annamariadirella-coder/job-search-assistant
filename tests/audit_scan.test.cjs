@@ -1,0 +1,14 @@
+const assert=require('node:assert/strict');
+const {audit}=require('../tools/audit-scan.cjs');
+const report={checked_at:'2026-10-14T12:00:00Z',company_boards:2,board_pages:[{status:'ok'},{status:'unavailable'}],candidates:[{provider:'personio',board:{board:'demo'},id:'1',company:'PRIVATE',description:'SECRET',employer_live_verified:true}],deferred:2};
+const state={pending_review:{'personio:demo:1':report.candidates[0],'ashby:2':{live_checked_at:'2026-10-05T12:00:00Z'},'ashby:3':{}}};
+const result=audit(report,state);
+assert.equal(result.deferred_count,2);assert.equal(result.queue_count_consistent,true);
+assert.equal(result.deferred_last_check_at_least_7_days_old,1);assert.equal(result.deferred_without_valid_check_time,1);
+assert.equal(result.verified_report_count,1);assert.equal(result.reaches_current_20_item_budget,false);
+assert(!JSON.stringify(result).includes('PRIVATE'));assert(!JSON.stringify(result).includes('SECRET'));
+assert.throws(()=>audit({...report,checked_at:'invalid'},state));
+assert.throws(()=>audit(report,{pending_review:[]}));
+assert.equal(audit({...report,candidates:Array(20).fill(report.candidates[0])},state).reaches_current_20_item_budget,true);
+console.log('PASS: offline counts, provider-specific identity, age caveats, malformed input and private-content exclusion.');
+
