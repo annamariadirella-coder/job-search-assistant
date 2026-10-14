@@ -1,0 +1,44 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const logs=[],c=vm.createContext({console:{log:s=>logs.push(s)}});
+vm.runInContext(fs.readFileSync('apps-script/Code.gs','utf8'),c);
+const run=s=>vm.runInContext(s,c);
+run(`var profile={version:1,candidate_location:'Spain',role_keywords:['customer operations'],excluded_title_keywords:['sales'],locations:['Spain','Madrid'],remote_regions:['Europe','EMEA'],require_remote:true,exclude_junior:true,allow_mandatory_german:false};
+ var j={title:'Customer Operations Lead',location:'Remote Spain',description:'Improve service workflows. English required.'};`);
+assert.equal(run('eligible(j)'),false); // Existing default unchanged.
+run(`RUN_SEARCH_PROFILE=searchProfile({SEARCH_PROFILE_JSON:JSON.stringify(profile)});`);
+assert.equal(run('eligible(j)'),true);
+assert.equal(run(`eligible({...j,location:'Madrid'})`),false);
+assert.equal(run(`eligible({...j,location:'Remote Europe'})`),true);
+assert.equal(run(`eligible({...j,location:'Remote US only; Europe'})`),false);
+assert.equal(run(`eligible({...j,location:'Remote Europe excluding Spain'})`),false);
+assert.equal(run(`eligible({...j,location:'Remote'})`),false);
+assert.equal(run(`eligible({...j,title:'Customer Operations Intern'})`),false);
+assert.equal(run(`eligible({...j,title:'Customer Operations Sales Lead'})`),false);
+assert.equal(run(`eligible({...j,description:'Fluent in German and English is required.'})`),false);
+run(`RUN_SEARCH_PROFILE={...profile,allow_mandatory_german:true};`);
+assert.equal(run(`eligible({...j,description:'Fluent in German and English is required.'})`),true);
+assert.equal(run(`profileTerm('Operations Lead','.*')`),false);
+for(const code of [`'bad JSON'`,`JSON.stringify({...profile,require_remote:'true'})`,`JSON.stringify({...profile,locations:[]})`,`JSON.stringify({...profile,extra:'unexpected'})`]) {
+  assert.throws(()=>run(`searchProfile({SEARCH_PROFILE_JSON:${code}})`),/InvalidSearchProfile/);
+}
+run(`var PropertiesService={getScriptProperties:()=>({getProperties:()=>Object.fromEntries(CONFIG_KEYS.map(k=>[k,'private-placeholder']))})};
+ checkSource=()=>['Confirmed evidence'];trackerKeys=()=>new Set();googleRequest=()=>({getContentText:()=>JSON.stringify({values:[['Company','Role title','Source','Status']]})});meta=()=>({mimeType:'application/vnd.google-apps.folder',trashed:false});
+ var checked=checkConfiguration();`);
+assert.equal(run('checked.ready'),true);
+assert(!logs.join('').includes('private-placeholder'));
+assert(!/writeOutput|newTrigger|setProperty|initializeOutputFolder/.test(run('checkConfiguration.toString()')));
+run(`trackerKeys=()=>{throw new Error('Tracker headers not recognized');};checked=checkConfiguration();`);
+assert.equal(run('checked.ready'),false);
+run(`var requestCount=0,released=0;var LockService={getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>released++})};
+ PropertiesService={getScriptProperties:()=>({getProperties:()=>({...Object.fromEntries(CONFIG_KEYS.map(k=>[k,'private-placeholder'])),SEARCH_PROFILE_JSON:'invalid'})})};
+ googleRequest=()=>{requestCount++;throw new Error('Unexpected network');};
+ checkSource=()=>{requestCount++;throw new Error('Unexpected source read');};
+ writeOutput=()=>{throw new Error('Unexpected write');};`);
+assert.throws(()=>run('scanJobs()'),/InvalidSearchProfile/);
+assert.equal(run('requestCount'),0);
+assert.equal(run('released'),1);
+assert.equal(run('RUN_SEARCH_PROFILE'),null);
+vm.runInContext(fs.readFileSync('apps-script/ScoringConfig.gs','utf8'),c);
+vm.runInContext(fs.readFileSync('apps-script/Scoring.gs','utf8'),c);
+assert.equal(run(`aiSettings({AI_SCORING_ENABLED:'true',SEARCH_PROFILE_JSON:JSON.stringify(profile)}).status`),'custom_profile_requires_guided_review');
+console.log('PASS: defaults preserved; Spain and remote-region profile; restriction/junior/language guards; invalid profile rejection; read-only setup check; custom-profile paid scoring blocked.');
