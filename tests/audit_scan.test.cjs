@@ -11,4 +11,3 @@ assert.throws(()=>audit({...report,checked_at:'invalid'},state));
 assert.throws(()=>audit(report,{pending_review:[]}));
 assert.equal(audit({...report,candidates:Array(20).fill(report.candidates[0])},state).reaches_current_20_item_budget,true);
 console.log('PASS: offline counts, provider-specific identity, age caveats, malformed input and private-content exclusion.');
-

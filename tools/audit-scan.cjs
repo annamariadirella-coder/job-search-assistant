@@ -47,4 +47,3 @@ if(require.main===module) {
     console.log(JSON.stringify(audit(read(process.argv[2]),read(process.argv[3])),null,2));
   } catch(e) { console.error('Audit failed. Check the two private JSON inputs and their timestamps.'); process.exitCode=1; }
 }
-

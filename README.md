@@ -15,6 +15,8 @@ The applicant decides whether to apply and submits the application.
 
 [Fictional first application](examples/first-application.md) · [Morning scan setup](apps-script/README.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
+Try the fictional walkthrough with its supplied CV, JDs and tracker; see [review results and limits](FLOW-REVIEW.md). No installation or real application is needed.
+
 **Is the scan doing enough?** [Check coverage and deferred work](SCAN-COVERAGE.md). An optional offline audit reports counts without changing your scan or exposing vacancy content.
 
 ## What this project is today
@@ -71,4 +73,3 @@ The workflow requires human judgment and source verification. Exact quotations e
 ## License
 
 MIT. Copyright notices for the reused collector are retained. LinkedIn publication is a separate action; no post is sent by this project.
-

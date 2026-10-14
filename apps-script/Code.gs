@@ -486,6 +486,19 @@ function trackerKeys(rows) {
   });
   return result;
 }
+function boardAudit(b) {
+  return BOARD_AUDIT[boardKey(b)] || BOARD_AUDIT[b.provider+':'+b.board] || {};
+}
+function boardEnabled(b,state,config) {
+  if(config.RETRY_UNAVAILABLE_BOARDS==='true') return true;
+  if(boardAudit(b).enabled===false) return false;
+  const h=(state.board_health || {})[boardKey(b)];
+  if(h && h.consecutive_failures>=2 && h.failure && h.failure.error_type==='not_found') {
+    const checked=Date.parse(h.last_attempt_at);
+    if(Number.isFinite(checked) && Date.now()-checked<7*86400000) return false;
+  }
+  return true;
+}
 function eligible(job) {
   if(RUN_SEARCH_PROFILE) return profileEligible(job,RUN_SEARCH_PROFILE);
   if (/\btax\b|\bcorporate finance\b|\bfinance business partner\b|\bcompensation\b|\blearning business partner\b|\bwarehouse\b|\bbrand strategy\b|\bpartner sales\b|\bchannel sales\b/i.test(job.title)) return false;
@@ -852,7 +865,7 @@ function discover(b) {
   throw new Error('Pagination limit');
 }
 let RUN_WORKABLE_UNTIL=0,RUN_WORKABLE_REQUESTS=0;
-const COLLECTOR_VERSION = '2026-10-14-search-profile-1';
+const COLLECTOR_VERSION = '2026-10-14-search-profile-coverage-2';
 function diagnostic(reason) {
   const text=String(reason || 'Unknown error'),m=text.match(/HTTP (\d+)/),code=m?Number(m[1]):null;
   const type=text==='TimeBudget'?'time_budget':['ProviderCooldown','ProviderQuota'].includes(text)?'provider_cooldown':code===404||code===410?'not_found':code===401||code===403?'access_denied':code===429?'rate_limited':code>=500?'server_error':text==='TransportError'?'transport_error':text==='JD incomplete'?'incomplete_jd':/Identity mismatch/.test(text)?'identity_mismatch':/JSON|listing|posting count|pagination|XML/i.test(text)?'invalid_response':'provider_error';
@@ -867,7 +880,7 @@ function recordBoardHealth(state,b,event) {
   state.board_health[key]=h;return event;
 }
 function coverageSnapshot(all,state,stats) {
-  const inventory=all.map(b=>Object.assign({key:boardKey(b),company:b.company,provider:b.provider,board:b.board,url:boardUrl(b),web_fallback_url:BOARD_WEB_FALLBACKS[b.provider+':'+b.board] || null},BOARD_AUDIT[boardKey(b)] || {},(state.board_health || {})[boardKey(b)] || {}));
+  const inventory=all.map(b=>Object.assign({key:boardKey(b),company:b.company,provider:b.provider,board:b.board,url:boardUrl(b),web_fallback_url:BOARD_WEB_FALLBACKS[b.provider+':'+b.board] || null},boardAudit(b),(state.board_health || {})[boardKey(b)] || {}));
   return {collector_version:COLLECTOR_VERSION,inventory:inventory,boards_completed_this_run:new Set(stats.filter(s=>s.status==='ok').map(s=>s.board)).size,boards_with_page_success_this_run:new Set(stats.filter(s=>['ok','page_checkpoint'].includes(s.status)).map(s=>s.board)).size,never_completed:inventory.filter(b=>!b.last_success_at).map(b=>b.key),unavailable_this_run:Array.from(new Set(stats.filter(s=>s.status==='unavailable').map(s=>s.board)))};
 }
 
@@ -971,7 +984,7 @@ function scanJobs() {
     // Re-key the legacy queue without discarding timestamps or unknown v1 fields.
     const pending={};Object.values(state.pending_review).forEach(j=>{if(!identities(j).some(k=>tracked.has(k)) && eligible(j)) pending[jobKey(j)]=j;});state.pending_review=pending;
     const all=Array.from(new Map(BOARDS.concat(state.discovered_boards).map(b=>[boardKey(b),b])).values());
-    const active=all.filter(b=>config.RETRY_UNAVAILABLE_BOARDS==='true' || (BOARD_AUDIT[boardKey(b)] || {}).enabled!==false);
+    const active=all.filter(b=>boardEnabled(b,state,config));
     const count=Math.min(setting(config,'BOARD_BATCH_SIZE',80,1,500),active.length);
     // New cursor does not reinterpret the old discovered-only board_rotation field.
     const primary=active.filter(b=>b.provider!=='workable'),workable=active.filter(b=>b.provider==='workable');

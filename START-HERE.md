@@ -25,6 +25,9 @@ Work through this sequence:
    relevant jobs. Verify the original employer and check my tracker if I
    provide one. If browsing is unavailable, ask me for the JD and URL and
    label availability unverified.
+   If I have no tracker yet, mark duplicate checking unavailable; help me
+   create a private tracker from the blank template. Do not claim no prior
+   application just because you could not check it.
 5. Map must-haves and preferences to direct evidence, transferable evidence
    and uncertainties. Ask only questions that could change the application.
 6. For a role I choose, prepare a tailored CV and requested application
@@ -55,6 +58,12 @@ A statement such as “led automation” should be clarified only when it matter
 Expect a short explanation of fit, explicit gaps and only decisive questions. No invented percentage or guarantee of an interview. The final CV should tell one coherent story. You review it and send it yourself.
 
 See [a complete fictional example](examples/first-application.md) before using real data.
+
+## Keep your progress between sessions
+
+Save the confirmed Evidence Bank, search preferences and tracker in your own private folder. At the end of a session, ask for the updated evidence text and unresolved questions; review changes before replacing your saved copy. In a new conversation, attach these saved files alongside your CV. Do not assume the assistant remembers previous chats or can access your Drive automatically.
+
+Start a tracker with [the blank CSV](templates/tracker-template.csv): download it and import it into a private Google Sheet, or use it privately as a spreadsheet file. No scanner installation is needed. Add a row after you submit a real application; leave it empty before your first submission. If the assistant cannot read it, paste the relevant company/role rows privately.
 
 ## 5. Add the morning scan when you want it
 
