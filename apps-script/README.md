@@ -4,7 +4,21 @@ This is a standalone private Google Apps Script installation. Repository publica
 
 ## Defaults and scope
 
-The snapshot targets senior Operations/Strategy/Product-adjacent roles in Germany and remote Europe. The filters are in `eligible` and `roleFamilies`, and the company catalog is `BOARD_ROWS` in Code.gs. The Evidence Bank and Charter do not automatically configure those filters. Review them before using the scanner for different targets. See the runtime report for actual completed, unavailable and unchecked sources.
+Without SEARCH_PROFILE_JSON, the original defaults remain senior Operations/Strategy/Product-adjacent roles in Germany and remote Europe. Optional SEARCH_PROFILE_JSON sets literal role/location terms and basic filters without code edits. The company catalog is still BOARD_ROWS in Code.gs; profile changes do not discover an entire new market. The Evidence Bank and Charter do not automatically configure these filters. See the runtime report for actual completed, unavailable and unchecked sources.
+
+## Optional private search profile
+
+Copy [the example](../templates/search-profile.example.json), change it with your assistant and confirm the terms before storing the complete JSON string in the private SEARCH_PROFILE_JSON property. All fields are required. No personal data belongs in the public example.
+
+- candidate_location: country you will work from, for example Spain. This supports simple explicit-exclusion checks; it is not a legal eligibility check.
+- role_keywords / excluded_title_keywords: literal phrases matched in job titles, not regex expressions.
+- locations: country/city terms that you accept. Include expected aliases where necessary, such as Germany/Deutschland.
+- remote_regions: region labels accepted only when the location mentions remote. Explicit country-only restrictions and simple exclusions take precedence.
+- require_remote: true excludes locations that do not explicitly say remote.
+- exclude_junior: true excludes internship/junior/working-student/entry-level titles.
+- allow_mandatory_german: whether the basic filter may retain explicit professional German requirements. Other languages and ambiguous requirements must be reviewed in the assistant.
+
+An absent/empty property preserves the original defaults; malformed or unsupported JSON blocks collection before source/network work or output writes. The JSON string is limited to 8,500 characters, below the Apps Script property-value limit for these inputs. Each list accepts at most 30 nonempty terms of at most 80 characters. Review job eligibility against the original employer even when a location term matches. Profile changes may remove now-ineligible postings from the pending queue; export a private backup first if you want to retain old leads separately.
 
 ## New installation
 
@@ -22,7 +36,7 @@ The snapshot targets senior Operations/Strategy/Product-adjacent roles in German
 | TRACKER_RANGE | Full application tab, for example `'Applications'!A1:N500` using your actual tab name |
 | OUTPUT_FOLDER_ID | The empty private initial folder ID |
 
-6. Run `initializeOutputFolder` once. It validates sources, creates an app-owned private output folder and stores its ID. Existing state in the initial folder is carried forward if present; the old folder is retained.
+6. Run `checkConfiguration` first. It reads settings and source access, checks tracker headers and validates the profile. It creates no folder/trigger/report. Resolve blocked checks using [troubleshooting](../TROUBLESHOOTING.md). Then run `initializeOutputFolder` once. It creates an app-owned private output folder and stores its ID. Existing state in the initial folder is carried forward if present; the old folder is retained.
 7. Run `scanJobs` manually, authorize the existing scopes and inspect Executions and the Drive reports. Verify duplicates, source failures, location/language filtering and job links.
 8. After the manual scan succeeds, run `enableDailyScan` once. The default window is 09:00–10:00 Europe/Berlin, not an exact minute. Adjust the scheduler timezone/hour if necessary.
 
@@ -34,7 +48,7 @@ The assistant instructions and templates can be used with an existing scanner wi
 
 ## Output and limits
 
-The scanner writes processed_jobs.json, candidates.json and candidates.md in its private folder. Candidates contain up to 20 employer-verified postings, with deferred work retained. Aggregator discovery leads are separate and unverified. These counts are work budgets, not shortlist quotas or evidence of suitable jobs.
+The scanner writes processed_jobs.json, candidates.json and candidates.md in its private folder. candidates.json includes the active search profile. Candidates contain up to 20 employer-verified postings, with deferred work retained. Aggregator discovery leads are separate and unverified. These counts are work budgets, not shortlist quotas or evidence of suitable jobs. Bring candidates.md into your assistant as described in [Start here](../START-HERE.md); there is no automatic morning conversation or CV generation.
 
 Default board work budget: 80 attempted boards per run, with rotation and pagination checkpoints. Public discovery feeds include Arbeitnow, Jobicy and Remotive. Source failures are logged as partial coverage. Check the employer's original posting before acting on an opportunity.
 
@@ -42,6 +56,6 @@ Apps Script quotas and provider access limits apply. The soft deadline cannot ca
 
 ## Optional paid scoring — off by default
 
-Scoring.gs and ScoringConfig.gs are supplied for compatibility and synthetic tests; they are not required for collector-only use. If installed, no model calls occur unless AI_SCORING_ENABLED is exactly `true` and private OPENAI_API_KEY/OPENAI_MODEL configuration is valid. AI_MAX_JOBS defaults to 3. Enabling scoring sends selected private source text to the configured API and incurs provider charges. Do not enable it merely to follow this guide.
+Scoring.gs and ScoringConfig.gs are supplied for compatibility and synthetic tests; they are not required for collector-only use. If installed, no model calls occur unless AI_SCORING_ENABLED is exactly `true` and private OPENAI_API_KEY/OPENAI_MODEL configuration is valid. Custom SEARCH_PROFILE_JSON disables the inherited paid scorer and reports custom_profile_requires_guided_review, because that scorer's prompt assumes Germany. AI_MAX_JOBS defaults to 3. Enabling scoring for the original defaults sends selected private source text to the configured API and incurs provider charges. Do not enable it merely to follow this guide.
 
 The free guided workflow instead reviews the private report with your assistant and asks you decisive questions. That assistant environment may have its own subscription costs and usage limits.

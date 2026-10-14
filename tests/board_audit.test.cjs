@@ -1,0 +1,17 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const c=vm.createContext({console});vm.runInContext(fs.readFileSync('apps-script/Code.gs','utf8'),c);
+const run=s=>vm.runInContext(s,c);
+assert.equal(run("boardAudit({provider:'greenhouse',board:'aiven',region:'global'}).enabled"),false);
+assert.equal(run("boardAudit({provider:'greenhouse',board:'getyourguide',region:'global'}).enabled"),true);
+assert.equal(run("boardEnabled({provider:'ashby',board:'unknown',region:'global'},{},{})"),true);
+c.state={board_health:{'ashby:demo:global':{consecutive_failures:2,last_attempt_at:new Date().toISOString(),failure:{error_type:'not_found'}}}};
+assert.equal(run("boardEnabled({provider:'ashby',board:'demo',region:'global'},state,{})"),false);
+assert.equal(run("boardEnabled({provider:'ashby',board:'demo',region:'global'},state,{RETRY_UNAVAILABLE_BOARDS:'true'})"),true);
+c.state.board_health['ashby:demo:global'].last_attempt_at=new Date(Date.now()-8*86400000).toISOString();
+assert.equal(run("boardEnabled({provider:'ashby',board:'demo',region:'global'},state,{})"),true);
+c.state.board_health['ashby:demo:global'].last_attempt_at=new Date().toISOString();
+c.state.board_health['ashby:demo:global'].failure.error_type='rate_limited';
+assert.equal(run("boardEnabled({provider:'ashby',board:'demo',region:'global'},state,{})"),true);
+const snapshot=run("coverageSnapshot([{provider:'greenhouse',board:'aiven',company:'Fixture',region:'global'}],{},[])");
+assert.equal(snapshot.inventory[0].enabled,false);
+console.log('PASS: legacy audit key lookup, paused/unknown routes, repeated-404 cooldown, explicit retry and coverage inventory.');

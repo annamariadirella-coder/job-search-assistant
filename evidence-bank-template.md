@@ -2,6 +2,8 @@
 
 Keep completed versions private. All example content below is fictional.
 
+You do not have to fill this out before starting. Follow [Start here](START-HERE.md): your assistant can draft a small first version from your existing CV, then ask you to confirm relevant facts and ownership. Add records progressively as real applications reveal important questions.
+
 ## Current search preferences
 
 - Primary career lanes:

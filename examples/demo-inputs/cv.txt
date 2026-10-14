@@ -1,0 +1,13 @@
+FICTIONAL TEST INPUT — not a real person's CV.
+
+Marta Rossi
+Customer Operations Manager
+Based in Spain. Working languages: English and Spanish.
+
+Northwind Services | Customer Operations Manager | 2020–2026
+Managed a team of eight. Led a support-process redesign, worked with
+Engineering on an automated ticket-routing project and reported service KPIs.
+Old wording: "Built automation that improved service efficiency."
+
+No contact details, earlier roles, education, industry classification or
+measured efficiency result are provided in this starting excerpt.

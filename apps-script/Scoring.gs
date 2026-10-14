@@ -1,6 +1,9 @@
 /** Optional assessment inside the existing scan lock. Never submits or writes sources. */
 function aiSettings(config) {
   if(config.AI_SCORING_ENABLED!=='true') return {enabled:false,status:'disabled'};
+  // The inherited paid-scoring prompt assumes Germany. A custom profile must
+  // use guided human review until that API workflow is made profile-aware.
+  if(config.SEARCH_PROFILE_JSON) return {enabled:false,status:'custom_profile_requires_guided_review'};
   const policy=Object.assign({},AI_SCORING_POLICY);
   for(const [property,key] of [['AI_APPLY_SCORE_MIN','apply_score_min'],['AI_MAYBE_SCORE_MIN','maybe_score_min'],['AI_APPLY_CONFIDENCE_MIN','apply_confidence_min']]) {
     if(config[property]!==undefined) {

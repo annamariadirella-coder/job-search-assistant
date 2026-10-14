@@ -392,6 +392,56 @@ const DISCOVERY_SOURCES = [
   {provider:'jobicy',name:'Jobicy',max_pages:10,documentation:'https://jobicy.com/jobs-rss-feed',delay_hours:3,window_days:7}
 ];
 const CONFIG_KEYS = ['EVIDENCE_FILE_ID','CHARTER_FILE_ID','TRACKER_SHEET_ID','TRACKER_RANGE','OUTPUT_FOLDER_ID'];
+let RUN_SEARCH_PROFILE=null;
+function searchProfile(config) {
+  if(config.SEARCH_PROFILE_JSON===undefined || config.SEARCH_PROFILE_JSON==='') return null; // Preserve the original defaults.
+  if(typeof config.SEARCH_PROFILE_JSON!=='string' || config.SEARCH_PROFILE_JSON.length>8500) throw new Error('InvalidSearchProfile');
+  let p;try {p=JSON.parse(config.SEARCH_PROFILE_JSON);}catch(e) {throw new Error('InvalidSearchProfile');}
+  const fields=['version','candidate_location','role_keywords','excluded_title_keywords','locations','remote_regions','require_remote','exclude_junior','allow_mandatory_german'];
+  if(!p || typeof p!=='object' || Array.isArray(p) || Object.keys(p).some(k=>!fields.includes(k)) || fields.some(k=>!Object.prototype.hasOwnProperty.call(p,k)) || p.version!==1) throw new Error('InvalidSearchProfile');
+  if(typeof p.candidate_location!=='string' || !p.candidate_location.trim() || p.candidate_location.length>80) throw new Error('InvalidSearchProfile');
+  for(const key of ['role_keywords','excluded_title_keywords','locations','remote_regions']) {
+    if(!Array.isArray(p[key]) || p[key].length>30 || p[key].some(x=>typeof x!=='string' || !x.trim() || x.length>80)) throw new Error('InvalidSearchProfile');
+  }
+  if(!p.role_keywords.length || !p.locations.length || ['require_remote','exclude_junior','allow_mandatory_german'].some(k=>typeof p[k]!=='boolean')) throw new Error('InvalidSearchProfile');
+  return p;
+}
+function profileTerm(text,term) {
+  // Literal terms, never user-supplied regular expressions.
+  const escaped=norm(term).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  return new RegExp('(?:^|[^a-z0-9])'+escaped+'(?:$|[^a-z0-9])','i').test(norm(text));
+}
+function profileLocation(job,p) {
+  const loc=norm(job.location),remote=/\bremote\b/.test(loc);
+  if(p.require_remote && !remote) return false;
+  // Broad regions never override an explicit country-only restriction.
+  const only=loc.match(/\bremote\s*[-–:,(/ ]*\s*(us|usa|united states|canada|uk|united kingdom|germany|spain|france|italy|portugal)\s*(only|exclusively)\b/);
+  if(only) return p.locations.some(x=>profileTerm(only[1],x));
+  const home=norm(p.candidate_location),escaped=home.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  if(new RegExp('(?:except|excluding|not available in|not eligible in)\\s+'+escaped+'(?:$|[^a-z0-9])','i').test(loc)) return false;
+  return p.locations.some(x=>profileTerm(loc,x)) || (remote && p.remote_regions.some(x=>profileTerm(loc,x)));
+}
+function profileEligible(job,p) {
+  if(!p.role_keywords.some(x=>profileTerm(job.title,x)) || p.excluded_title_keywords.some(x=>profileTerm(job.title,x))) return false;
+  if(p.exclude_junior && /\bintern(ship)?\b|\bworking student\b|\bjunior\b|\bentry[- ]level\b/.test(norm(job.title))) return false;
+  if(!profileLocation(job,p)) return false;
+  return p.allow_mandatory_german || !/(must (?:be )?(?:fluent|proficient) in german|german (?:fluency|proficiency) is required|fluent german (?:is )?required|native[- ]level german (?:is )?required|fließende deutschkenntnisse|verhandlungssichere deutschkenntnisse|german (?:at|minimum) c[12]|business-level german|fluent in german|german native or bilingual|verhandlungssicheres deutsch)/i.test(plain(job.description));
+}
+function checkConfiguration() {
+  const config=PropertiesService.getScriptProperties().getProperties(),checks=[];
+  function check(name,fn) {try {fn();checks.push({name:name,status:'ok'});}catch(e) {checks.push({name:name,status:'blocked'});}}
+  check('Required private settings',()=>{CONFIG_KEYS.forEach(k=>{if(!config[k])throw new Error('Missing setting');});});
+  let profile=null;check('Search profile',()=>{profile=searchProfile(config);});
+  check('Evidence document readable',()=>checkSource(config.EVIDENCE_FILE_ID));
+  check('Targeting document readable',()=>checkSource(config.CHARTER_FILE_ID));
+  check('Tracker readable with recognized headers',()=>{
+    const rows=JSON.parse(googleRequest('https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(config.TRACKER_SHEET_ID)+'/values/'+encodeURIComponent(config.TRACKER_RANGE)).getContentText()).values || [];
+    trackerKeys(rows);
+  });
+  check('Output folder readable',()=>{const info=meta(config.OUTPUT_FOLDER_ID);if(info.trashed || info.mimeType!=='application/vnd.google-apps.folder')throw new Error('Invalid folder');});
+  const result={ready:checks.every(x=>x.status==='ok'),checks:checks,profile:profile?{candidate_location:profile.candidate_location,role_keywords:profile.role_keywords,locations:profile.locations,remote_regions:profile.remote_regions,require_remote:profile.require_remote}: {defaults:'Senior Operations/Strategy/Product-adjacent; Germany and remote Europe'},note:'Read-only check; no folder, trigger or report created. Employer work eligibility still requires review.'};
+  console.log(JSON.stringify(result));return result;
+}
 function norm(v) {return String(v || '').normalize('NFKC').toLowerCase().replace(/\s+/g,' ').trim();}
 function plain(v) {return String(v || '').replace(/<[^>]*>/g,' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/\s+/g,' ').trim();}
 function canonical(url) {
@@ -436,7 +486,21 @@ function trackerKeys(rows) {
   });
   return result;
 }
+function boardAudit(b) {
+  return BOARD_AUDIT[boardKey(b)] || BOARD_AUDIT[b.provider+':'+b.board] || {};
+}
+function boardEnabled(b,state,config) {
+  if(config.RETRY_UNAVAILABLE_BOARDS==='true') return true;
+  if(boardAudit(b).enabled===false) return false;
+  const h=(state.board_health || {})[boardKey(b)];
+  if(h && h.consecutive_failures>=2 && h.failure && h.failure.error_type==='not_found') {
+    const checked=Date.parse(h.last_attempt_at);
+    if(Number.isFinite(checked) && Date.now()-checked<7*86400000) return false;
+  }
+  return true;
+}
 function eligible(job) {
+  if(RUN_SEARCH_PROFILE) return profileEligible(job,RUN_SEARCH_PROFILE);
   if (/\btax\b|\bcorporate finance\b|\bfinance business partner\b|\bcompensation\b|\blearning business partner\b|\bwarehouse\b|\bbrand strategy\b|\bpartner sales\b|\bchannel sales\b/i.test(job.title)) return false;
   if (/\bintern(ship)?\b|\bworking student\b|\bjunior\b|\bentry[- ]level\b/.test(norm(job.title))) return false;
   if (!roleFamilies(job).length) return false;
@@ -446,6 +510,7 @@ function eligible(job) {
   return !/(must (?:be )?(?:fluent|proficient) in german|german (?:fluency|proficiency) is required|fluent german (?:is )?required|native[- ]level german (?:is )?required|fließende deutschkenntnisse|verhandlungssichere deutschkenntnisse|german (?:at|minimum) c[12])/i.test(norm(job.description));
 }
 function roleFamilies(job) {
+  if(RUN_SEARCH_PROFILE) return RUN_SEARCH_PROFILE.role_keywords.filter(x=>profileTerm(job.title,x));
   const groups={operations:/operations|\bops\b|operational excellence|operating model/i,strategy:/strategy|strategic|chief of staff|founder|\bcoo\b/i,
     delivery:/delivery|implementation|deployment/i,enablement:/enablement|transformation/i,platform:/partner|marketplace|platform operations/i,
     customer_leadership:/(?=.*(?:head|director|lead|vp))(?=.*customer success)/i,music_leadership:/(?=.*(?:head|director|lead|vp))(?=.*(?:music|product))/i};
@@ -800,7 +865,7 @@ function discover(b) {
   throw new Error('Pagination limit');
 }
 let RUN_WORKABLE_UNTIL=0,RUN_WORKABLE_REQUESTS=0;
-const COLLECTOR_VERSION = '2026-10-08-recovery-2';
+const COLLECTOR_VERSION = '2026-10-14-search-profile-coverage-2';
 function diagnostic(reason) {
   const text=String(reason || 'Unknown error'),m=text.match(/HTTP (\d+)/),code=m?Number(m[1]):null;
   const type=text==='TimeBudget'?'time_budget':['ProviderCooldown','ProviderQuota'].includes(text)?'provider_cooldown':code===404||code===410?'not_found':code===401||code===403?'access_denied':code===429?'rate_limited':code>=500?'server_error':text==='TransportError'?'transport_error':text==='JD incomplete'?'incomplete_jd':/Identity mismatch/.test(text)?'identity_mismatch':/JSON|listing|posting count|pagination|XML/i.test(text)?'invalid_response':'provider_error';
@@ -815,7 +880,7 @@ function recordBoardHealth(state,b,event) {
   state.board_health[key]=h;return event;
 }
 function coverageSnapshot(all,state,stats) {
-  const inventory=all.map(b=>Object.assign({key:boardKey(b),company:b.company,provider:b.provider,board:b.board,url:boardUrl(b),web_fallback_url:BOARD_WEB_FALLBACKS[b.provider+':'+b.board] || null},BOARD_AUDIT[boardKey(b)] || {},(state.board_health || {})[boardKey(b)] || {}));
+  const inventory=all.map(b=>Object.assign({key:boardKey(b),company:b.company,provider:b.provider,board:b.board,url:boardUrl(b),web_fallback_url:BOARD_WEB_FALLBACKS[b.provider+':'+b.board] || null},boardAudit(b),(state.board_health || {})[boardKey(b)] || {}));
   return {collector_version:COLLECTOR_VERSION,inventory:inventory,boards_completed_this_run:new Set(stats.filter(s=>s.status==='ok').map(s=>s.board)).size,boards_with_page_success_this_run:new Set(stats.filter(s=>['ok','page_checkpoint'].includes(s.status)).map(s=>s.board)).size,never_completed:inventory.filter(b=>!b.last_success_at).map(b=>b.key),unavailable_this_run:Array.from(new Set(stats.filter(s=>s.status==='unavailable').map(s=>s.board)))};
 }
 
@@ -909,6 +974,7 @@ function scanJobs() {
   const lock=LockService.getScriptLock();if(!lock.tryLock(1000)) throw new Error('Another scan is running');
   try {
     const config=PropertiesService.getScriptProperties().getProperties();CONFIG_KEYS.forEach(k=>{if(!config[k]) throw new Error('Missing configuration: '+k);});
+    RUN_SEARCH_PROFILE=searchProfile(config);
     RUN_CLOCK={start:Date.now(),budget:setting(config,'SCAN_BUDGET_MS',270000,60000,285000)};RUN_CACHE={};
     const sources={evidence:checkSource(config.EVIDENCE_FILE_ID),charter:checkSource(config.CHARTER_FILE_ID)};
     const rows=JSON.parse(googleRequest('https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(config.TRACKER_SHEET_ID)+'/values/'+encodeURIComponent(config.TRACKER_RANGE)).getContentText()).values || [];
@@ -918,7 +984,7 @@ function scanJobs() {
     // Re-key the legacy queue without discarding timestamps or unknown v1 fields.
     const pending={};Object.values(state.pending_review).forEach(j=>{if(!identities(j).some(k=>tracked.has(k)) && eligible(j)) pending[jobKey(j)]=j;});state.pending_review=pending;
     const all=Array.from(new Map(BOARDS.concat(state.discovered_boards).map(b=>[boardKey(b),b])).values());
-    const active=all.filter(b=>config.RETRY_UNAVAILABLE_BOARDS==='true' || (BOARD_AUDIT[boardKey(b)] || {}).enabled!==false);
+    const active=all.filter(b=>boardEnabled(b,state,config));
     const count=Math.min(setting(config,'BOARD_BATCH_SIZE',80,1,500),active.length);
     // New cursor does not reinterpret the old discovered-only board_rotation field.
     const primary=active.filter(b=>b.provider!=='workable'),workable=active.filter(b=>b.provider==='workable');
@@ -950,6 +1016,7 @@ function scanJobs() {
     report.ai_scoring=aiSummary;report.mode=aiSummary.assessed?'collect_and_score':'collect';
     report.fit_assessed=candidates.length>0 && aiSummary.assessed===candidates.length;
     report.human_approval_required=true;
+    report.search_profile=RUN_SEARCH_PROFILE || {defaults:'Germany and remote Europe; configured senior role families'};
     report.decision_counts=Object.fromEntries(['APPLY','MAYBE','SKIP','BLOCKED'].map(d=>[d,candidates.filter(j=>j.scoring && j.scoring.decision===d).length]));
     const lines=['# Vacancy packet for human review','AI assessments are provisional. Unscored candidates require evidence review. Human approval is the final gate; no auto-submit.','Use fresh Evidence Bank, Charter and Tracker.','AI scoring: '+JSON.stringify(aiSummary),'Decisions: '+JSON.stringify(report.decision_counts),'Checked: '+report.checked_at+'; coverage: '+report.coverage,'Boards attempted: '+started+'/'+all.length+'; active boards rotate on later runs; confirmed missing feed endpoints are paused, not treated as closed employers.',''];
     lines.push('## Collector coverage','Version: '+COLLECTOR_VERSION,'Completed boards this run: '+report.board_coverage.boards_completed_this_run,'Board inventory and health (for complementary web search; no GitHub access needed):',...report.board_coverage.inventory.map(b=>JSON.stringify(b)),'## Source diagnostics',...stats.filter(s=>s.status==='unavailable').map(s=>JSON.stringify(s)),...errors.map(e=>JSON.stringify(e)),'');
@@ -962,6 +1029,7 @@ function scanJobs() {
     writeOutput(config,'candidates.json',JSON.stringify(report,null,2),'application/json');
     writeOutput(config,'candidates.md',lines.join('\n'),'text/markdown');
     console.log('Collection saved: '+started+'/'+all.length+' boards, '+candidates.length+' candidates, '+deferred+' queued, '+errors.length+' nonblocking source errors.');
-  } finally {RUN_CLOCK=null;lock.releaseLock();}
+  } finally {RUN_CLOCK=null;RUN_SEARCH_PROFILE=null;lock.releaseLock();}
 }
+
 

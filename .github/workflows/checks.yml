@@ -11,3 +11,6 @@ jobs:
         with:
           node-version: '24'
       - run: node tests/apps_script.test.cjs
+      - run: node tests/search_profile.test.cjs
+      - run: node tests/audit_scan.test.cjs
+      - run: node tests/board_audit.test.cjs

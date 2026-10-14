@@ -2,6 +2,12 @@
 
 Initial package prepared 14 October 2026.
 
+CV-first manual walkthrough: [review and reproducible inputs](FLOW-REVIEW.md). The simulation follows supplied fictional CV/JDs/tracker through three scripted questions, approved evidence changes and a tailored CV excerpt. It tests the clarity and consistency of the documented path; it does not establish live vacancy verification, exported-document layout or success across assistant providers. The demo stays explicitly unverified and not submission-ready.
+
+Generic coverage correction: legacy audit-key lookup and seven-day repeated-not-found pauses have dedicated synthetic tests, including unknown sources, explicit retry and inventory metadata. Existing collector tests run against the revised source. No applicant-specific exclusions are included in the public collector.
+
+User-friendly onboarding revision: existing collector suites and new search-profile tests executed locally and passed. Tests cover Spain/remote Europe acceptance, remote-only and country-exclusion handling, junior/title/language filtering, malformed JSON rejection, preservation of original defaults, read-only configuration checks and blocking the Germany-specific paid scorer for custom profiles. The full end-user installation with real Google permissions was not repeated. The fictional CV walkthrough is an illustration, not a document-export or outcome benchmark.
+
 - Collector synthetic suite executed locally with Node.js: passed.
 - Covered: public feeds/pagination, queue preservation, tracker deduplication, rotations, provider errors/recovery, identity checks and optional scoring failure/citation guardrails.
 - No new paid AI call, public web-app deployment, real application submission or change to the existing private scan is part of this package.

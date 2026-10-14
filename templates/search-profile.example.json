@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "candidate_location": "Germany",
+  "role_keywords": ["operations", "strategy", "implementation", "enablement"],
+  "excluded_title_keywords": ["corporate finance", "warehouse", "channel sales"],
+  "locations": ["Germany", "Deutschland", "Berlin", "Hamburg", "Munich", "München"],
+  "remote_regions": ["Europe", "EMEA", "EU", "Worldwide", "Global"],
+  "require_remote": false,
+  "exclude_junior": true,
+  "allow_mandatory_german": false
+}
