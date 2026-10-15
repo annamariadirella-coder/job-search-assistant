@@ -1,6 +1,8 @@
-# Job Search Assistant
+# Next Chapter
 
-A guided workflow for finding relevant jobs and preparing truthful, tailored applications from a private Career Evidence Bank.
+*Your experience. Better understood.*
+
+An independent open-source guided workflow for finding relevant jobs and preparing truthful, tailored applications from a private Career Evidence Bank.
 
 The assistant helps with four steps:
 
@@ -73,3 +75,4 @@ The workflow requires human judgment and source verification. Exact quotations e
 ## License
 
 MIT. Copyright notices for the reused collector are retained. LinkedIn publication is a separate action; no post is sent by this project.
+
