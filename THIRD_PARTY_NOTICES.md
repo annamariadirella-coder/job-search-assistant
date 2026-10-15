@@ -4,4 +4,5 @@ Collector files in apps-script/, synthetic fixtures in tests/ and context/apps_s
 
 This package presents those collector components alongside a guided evidence-based application workflow. It does not include the JobOps extension, dashboard or private workspace.
 
-The user-friendly onboarding revision modifies Code.gs to accept a private search profile and adds a read-only configuration check. Scoring.gs blocks the inherited Germany-specific paid scorer for custom profiles. These changes are specific to Job Search Assistant; the upstream JobOps snapshot and the owner's private installation are not modified automatically.
+The user-friendly onboarding revision modifies Code.gs to accept a private search profile and adds a read-only configuration check. Scoring.gs blocks the inherited Germany-specific paid scorer for custom profiles. These changes are specific to Next Chapter; the upstream JobOps snapshot and the owner's private installation are not modified automatically.
+

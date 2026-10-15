@@ -745,7 +745,7 @@ function initializeOutputFolder() {
   // drive.file cannot edit files created by the earlier desktop OAuth client.
   // Create this script's own private folder and carry its pending queue forward.
   const folder=JSON.parse(googleRequest('https://www.googleapis.com/drive/v3/files?fields=id',{
-    method:'post',contentType:'application/json',payload:JSON.stringify({name:'JobOps — private daily collection',mimeType:'application/vnd.google-apps.folder'})
+    method:'post',contentType:'application/json',payload:JSON.stringify({name:'Next Chapter — private daily collection',mimeType:'application/vnd.google-apps.folder'})
   }).getContentText());
   config.OUTPUT_FOLDER_ID=folder.id;
   writeOutput(config,'processed_jobs.json',JSON.stringify(state,null,2),'application/json');
