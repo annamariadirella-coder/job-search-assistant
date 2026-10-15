@@ -2,6 +2,18 @@
 
 You do not need to install the scanner or write an Evidence Bank before starting.
 
+## Your first action
+
+1. Open a new conversation in your AI assistant. Stay in that conversation for the initial workflow.
+2. Attach your CV, or paste its text.
+3. Copy **only the message in the box in step 2 below**, paste it into the same conversation and send it. You do not need to copy every repository file or complete the other templates first.
+
+Expect a brief CV summary and at most three useful questions in the first response. After you confirm the relevant facts, the assistant proposes your search profile and initial Evidence Bank. If it already has enough information, it should not ask questions just to reach three.
+
+GitHub hosts the instructions; your private assistant conversation is where you provide the CV, answer questions and receive the work. A link to this guide does not automatically configure an assistant: the copied message starts the workflow.
+
+Prefer to try fictional data first? Use [the demo](examples/first-application.md). It needs no Google Drive setup, additional account, script installation or real application.
+
 ## 1. Open your AI assistant
 
 Use an assistant that can read your CV or pasted career text. Web access is needed for live job research; document export is needed for downloadable CV files. If either is unavailable, the assistant should explain the limitation and offer a pasted-job-description or editable-text workflow instead.
@@ -81,3 +93,4 @@ Ask me only decisive questions, then prepare the CV for a role I select.
 ```
 
 The scanner does not update your tracker automatically. After you submit, record the role and status in your private tracker so future scans can exclude it.
+
