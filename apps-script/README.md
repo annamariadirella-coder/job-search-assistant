@@ -50,7 +50,17 @@ The assistant instructions and templates can be used with an existing scanner wi
 
 The scanner writes processed_jobs.json, candidates.json and candidates.md in its private folder. candidates.json includes the active search profile. Candidates contain up to 20 employer-verified postings, with deferred work retained. Aggregator discovery leads are separate and unverified. These counts are work budgets, not shortlist quotas or evidence of suitable jobs. Bring candidates.md into your assistant as described in [Start here](../START-HERE.md); there is no automatic morning conversation or CV generation.
 
-Default board work budget: 80 attempted boards per run, with rotation and pagination checkpoints. Public discovery feeds include Arbeitnow, Jobicy and Remotive. Source failures are logged as partial coverage. Check the employer's original posting before acting on an opportunity.
+Default board work budget: 80 attempted boards per run, with rotation and pagination checkpoints. Public discovery feeds include Arbeitnow, Jobicy, Remotive, We Work Remotely and Remote OK. Source failures are logged as partial coverage. Check the employer's original posting before acting on an opportunity.
+
+Wellfound is recorded as `manual_review_required`; this collector does not automatically search it. Other suggested boards (Working Nomads, Remote.co, Jobgether, AI Jobs, Remote Woman and JS Remotely) are not connected. Toptal should be checked through its employer careers page. Do not interpret this list as automatic market coverage.
+
+The We Work Remotely adapter reads its official RSS feed and prefers an explicit country list over a broad region label. Missing locations are not replaced with worldwide eligibility. Feed metadata can still conflict with the job description: location, compensation, seniority and fit require employer verification.
+
+The collector also maintains `archived_jobs.json` in the same private output folder. Unseen discovery leads older than 14 days and pending postings older than 21 days move there with their complete text and an archive reason. Age is measured from a known observation timestamp; legacy records without one get a grace period. Archival does not mean that a vacancy is closed. Failed sources may cause live jobs to become stale, so review the archive before treating anything as unavailable. The archive is retained and may grow; no historical records or learned boards are silently purged.
+
+`filter_audit` reports evaluation counts and sample titles, not counts of distinct rejected jobs. Generic partner matching excludes HR/People/Talent Acquisition Partner titles; custom role profiles retain their explicit keyword choices. Exclusions must reflect explicit search preferences, not facts from a single application.
+
+Tracker deduplication retains source URLs and vacancy IDs and adds a conservative normalized company/title identity (punctuation, `&` and common gender suffixes). Different titles at the same company remain distinct. When `TRACKER_RANGE` is a bounded, sheet-qualified A1 range, the read extends to the current sheet row count, up to 5,000 rows, so newly added applications are included. Set `TRACKER_AUTO_EXPAND=false` to keep an intentionally fixed range. `tracker_read` records the range and row count used; the tracker is never edited by the collector.
 
 Apps Script quotas and provider access limits apply. The soft deadline cannot cancel in-flight requests. Read-only source/Tracker scopes and app-file output access are included in the manifest; external HTTP requests and trigger management are also required.
 

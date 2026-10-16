@@ -63,7 +63,7 @@ run(`discoverFeed=realFeed;var pageCounter=0;fetchResponse=()=>({getContentText:
 assert.equal(run("discoverFeed(Object.assign({},DISCOVERY_SOURCES[2],{max_pages:2})).truncated"),true);
 assert.equal(run('pageCounter'),2);
 run(`fetchResponse=()=>{throw new Error('Provider unavailable');};`);
-assert.equal(run('marketDiscovery(new Set(),{},{discovered_boards:[]}).errors.length'),3);
+assert.equal(run('marketDiscovery(new Set(),{},{discovered_boards:[]}).errors.length'),run('DISCOVERY_SOURCES.length'));
 run('discoverFeed=realFeed;fetchResponse=realFetch;');
 run(`var retainedMarket=marketDiscovery, savedOutputFiles=outputFiles, savedGoogleRequest=googleRequest;
 outputFiles=(f,n)=>[{id:n}];googleRequest=url=>({getContentText:()=>JSON.stringify(url.includes('processed_jobs.json')?{version:1,processed:{}}:{discovery_sources:[{source:'Arbeitnow',pages:10,truncated:true}],discovery_leads:[{provider:'remotive',id:'7',company:'Acme',title:'Head of Operations',url:'https://remotive.com/remote-jobs/business/head-7',location:'Remote Worldwide',description:'A'.repeat(250),requires_employer_verification:true}]})});

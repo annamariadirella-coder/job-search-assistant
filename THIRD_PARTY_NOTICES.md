@@ -5,4 +5,9 @@ Collector files in apps-script/, synthetic fixtures in tests/ and context/apps_s
 This package presents those collector components alongside a guided evidence-based application workflow. It does not include the JobOps extension, dashboard or private workspace.
 
 The user-friendly onboarding revision modifies Code.gs to accept a private search profile and adds a read-only configuration check. Scoring.gs blocks the inherited Germany-specific paid scorer for custom profiles. These changes are specific to Next Chapter; the upstream JobOps snapshot and the owner's private installation are not modified automatically.
+# Public discovery feed attribution
+
+We Work Remotely supplies a public RSS feed: https://weworkremotely.com/remote-job-rss-feed . Retain the original listing links and source name.
+
+Remote OK supplies https://remoteok.com/api . Its feed requires credit to Remote OK and a direct, followable link to the original Remote OK listing when sharing or publishing results. The collector retains both the source name and listing URL. Do not use its logo without permission. Review the feed terms before redistributing results.
 
