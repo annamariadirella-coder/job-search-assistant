@@ -1,0 +1,23 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const file=process.env.COLLECTOR_FILE || 'apps-script/Code.gs';
+const c=vm.createContext({console});vm.runInContext(fs.readFileSync(file,'utf8'),c);
+const run=s=>vm.runInContext(s,c);
+const element=(name,text='',children=[])=>({getName:()=>name,getText:()=>text,getChildren:n=>n?children.filter(x=>x.getName()===n):children,getChild:n=>children.find(x=>x.getName()===n)||null,getChildText:n=>children.find(x=>x.getName()===n)?.getText()||''});
+const item=(country,region)=>element('item','',Object.entries({title:'Acme: Head of Operations',guid:'https://weworkremotely.com/remote-jobs/acme-head',link:'https://weworkremotely.com/remote-jobs/acme-head',country,region,description:'<p>Work with Product and Engineering.</p>'}).map(([n,t])=>element(n,t)));
+c.XmlService={parse:()=>({getRootElement:()=>element('rss','',[element('channel','',[item('United States of America','Anywhere in the World')])])})};
+run(`fetchResponse=()=>({getContentText:()=>'<rss/>'});var wwr={provider:'wwr',name:'We Work Remotely'};`);
+const j=run('discoverFeed(wwr).jobs[0]');
+assert.equal(j.company,'Acme');assert.equal(j.title,'Head of Operations');assert.equal(j.employer_live_verified,false);assert.equal(j.requires_employer_verification,true);assert.equal(run('eligible(discoverFeed(wwr).jobs[0])'),false);
+c.XmlService={parse:()=>({getRootElement:()=>element('rss','',[element('channel','',[item('Germany','Anywhere in the World')])])})};
+assert.equal(run('eligible(discoverFeed(wwr).jobs[0])'),true);
+run(`fetchResponse=()=>({getContentText:()=>JSON.stringify([{legal:'credit Remote OK'},{id:1,company:'Acme',position:'Head of Operations',url:'https://remoteok.com/remote-jobs/1',location:'Europe',description:'English required'}])});`);
+assert.equal(run(`discoverFeed({provider:'remoteok',name:'Remote OK'}).jobs.length`),1);
+assert.equal(run(`discoverFeed({provider:'remoteok',name:'Remote OK'}).jobs[0].url`),'https://remoteok.com/remote-jobs/1');
+run(`fetchResponse=()=>({getContentText:()=>JSON.stringify({jobs:[]})});`);
+assert.throws(()=>run(`discoverFeed({provider:'remoteok',name:'Remote OK'})`),/Invalid Remote OK/);
+// A broken new source cannot erase the retained discovery queue or stop other feeds.
+run(`discoverFeed=source=>{if(source.provider==='wwr')throw Error('HTTP 503');return {jobs:[],pages:1,truncated:false};};timeLow=()=>false;var saved={discovered_boards:[],discovery_review:{old:{id:'old',provider:'wwr',company:'Acme',title:'Head of Operations',location:'Remote Germany',url:'https://example.org/old',description:'English required'}}};var result=marketDiscovery(new Set(),{},saved);`);
+assert.equal(run('result.errors.length'),1);assert.equal(run('result.leads.length'),1);
+assert.equal(run(`result.stats.find(s=>s.source==='Wellfound').status`),'manual_review_required');
+assert(run(`result.stats.some(s=>s.source==='Jobicy' && s.pages===1)`));
+console.log('PASS: RSS country precedence, unverified provenance, Remote OK schema, source failure isolation and queue retention.');

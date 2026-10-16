@@ -389,7 +389,9 @@ const BOARDS = BOARD_ROWS.map((r,i)=>({provider:r[0],board:r[1],company:r[2],reg
 const DISCOVERY_SOURCES = [
   {provider:'remotive',name:'Remotive',max_pages:1,documentation:'https://github.com/remotive-com/remote-jobs-api',delay_hours:24},
   {provider:'arbeitnow',name:'Arbeitnow',max_pages:10,documentation:'https://www.arbeitnow.com/blog/job-board-api'},
-  {provider:'jobicy',name:'Jobicy',max_pages:10,documentation:'https://jobicy.com/jobs-rss-feed',delay_hours:3,window_days:7}
+  {provider:'jobicy',name:'Jobicy',max_pages:10,documentation:'https://jobicy.com/jobs-rss-feed',delay_hours:3,window_days:7},
+  {provider:'wwr',name:'We Work Remotely',max_pages:1,documentation:'https://weworkremotely.com/remote-job-rss-feed'},
+  {provider:'remoteok',name:'Remote OK',max_pages:1,documentation:'https://remoteok.com/api'}
 ];
 const CONFIG_KEYS = ['EVIDENCE_FILE_ID','CHARTER_FILE_ID','TRACKER_SHEET_ID','TRACKER_RANGE','OUTPUT_FOLDER_ID'];
 let RUN_SEARCH_PROFILE=null;
@@ -435,7 +437,7 @@ function checkConfiguration() {
   check('Evidence document readable',()=>checkSource(config.EVIDENCE_FILE_ID));
   check('Targeting document readable',()=>checkSource(config.CHARTER_FILE_ID));
   check('Tracker readable with recognized headers',()=>{
-    const rows=JSON.parse(googleRequest('https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(config.TRACKER_SHEET_ID)+'/values/'+encodeURIComponent(config.TRACKER_RANGE)).getContentText()).values || [];
+    const trackerRead=readTrackerRows(config),rows=trackerRead.rows;
     trackerKeys(rows);
   });
   check('Output folder readable',()=>{const info=meta(config.OUTPUT_FOLDER_ID);if(info.trashed || info.mimeType!=='application/vnd.google-apps.folder')throw new Error('Invalid folder');});
@@ -479,7 +481,7 @@ function trackerKeys(rows) {
     const company = norm(row[cols.company]), title = norm(row[cols.title]);
     if (aliases.company.includes(company) || (!company && !title)) return;
     if (!company || !title) throw new Error('Incomplete tracker identity');
-    result.add('role:' + company + '|' + title);
+    result.add('role:' + company + '|' + title);result.add(roleIdentity(company,title));
     (String(row[cols.url] || '').match(/https?:\/\/[^\s<>]+/g) || []).forEach(url => {
       result.add(canonical(url)); const id=vacancyId(url); if(id) result.add(id);
     });
@@ -499,7 +501,7 @@ function boardEnabled(b,state,config) {
   }
   return true;
 }
-function eligible(job) {
+function baseEligible(job) {
   if(RUN_SEARCH_PROFILE) return profileEligible(job,RUN_SEARCH_PROFILE);
   if (/\btax\b|\bcorporate finance\b|\bfinance business partner\b|\bcompensation\b|\blearning business partner\b|\bwarehouse\b|\bbrand strategy\b|\bpartner sales\b|\bchannel sales\b/i.test(job.title)) return false;
   if (/\bintern(ship)?\b|\bworking student\b|\bjunior\b|\bentry[- ]level\b/.test(norm(job.title))) return false;
@@ -511,8 +513,9 @@ function eligible(job) {
 }
 function roleFamilies(job) {
   if(RUN_SEARCH_PROFILE) return RUN_SEARCH_PROFILE.role_keywords.filter(x=>profileTerm(job.title,x));
+  if(/\b(?:hr|human resources|people|talent acquisition|recruiting)\b/.test(norm(job.title)) && /\bpartner\b/.test(norm(job.title))) return [];
   const groups={operations:/operations|\bops\b|operational excellence|operating model/i,strategy:/strategy|strategic|chief of staff|founder|\bcoo\b/i,
-    delivery:/delivery|implementation|deployment/i,enablement:/enablement|transformation/i,platform:/partner|marketplace|platform operations/i,
+    delivery:/delivery|implementation|deployment/i,enablement:/enablement|transformation/i,platform:/(?<!hr )(?<!business )(?<!people )(?<!talent acquisition )partner|marketplace|platform operations/i,
     customer_leadership:/(?=.*(?:head|director|lead|vp))(?=.*customer success)/i,music_leadership:/(?=.*(?:head|director|lead|vp))(?=.*(?:music|product))/i};
   return Object.keys(groups).filter(k=>groups[k].test(job.title));
 }
@@ -618,7 +621,7 @@ function readState(config) {
   return state;
 }
 function writeOutput(config,name,content,mime) {
-  if(!['candidates.json','candidates.md','processed_jobs.json'].includes(name)) throw new Error('Unapproved output');
+  if(!['candidates.json','candidates.md','processed_jobs.json','archived_jobs.json'].includes(name)) throw new Error('Unapproved output');
   const folder=meta(config.OUTPUT_FOLDER_ID);
   if(folder.trashed || folder.mimeType!=='application/vnd.google-apps.folder') throw new Error('Output folder unavailable');
   const files=outputFiles(config.OUTPUT_FOLDER_ID,name); let id;
@@ -632,6 +635,7 @@ function leadFrom(raw,source) {
   if(source.provider==='remotive') job={id:String(raw.id),company:raw.company_name,title:raw.title,url:raw.url,location:'Remote '+raw.candidate_required_location,description:plain(raw.description),published_at:raw.publication_date};
   else if(source.provider==='arbeitnow') job={id:raw.slug,company:raw.company_name,title:raw.title,url:raw.url,location:(raw.remote?'Remote ':'')+raw.location,description:plain(raw.description),published_at:new Date(raw.created_at*1000).toISOString()};
   else if(source.provider==='jobicy') job={id:String(raw.id),company:raw.companyName,title:plain(raw.jobTitle),url:raw.url,location:'Remote '+raw.jobGeo,description:plain(raw.jobDescription),published_at:raw.pubDate};
+  else if(['wwr','remoteok'].includes(source.provider)) job={id:String(raw.id || ''),company:raw.company,title:plain(raw.title),url:raw.url,location:'Remote '+raw.location,description:plain(raw.description),published_at:raw.published_at};
   else throw new Error('Unknown discovery source');
   if(!job.id || !job.company || !job.title || !job.url) throw new Error('Incomplete discovery record');
   canonical(job.url);
@@ -660,6 +664,7 @@ function discoverArbeitnow(source,progress) {
   return {jobs:jobs,pages:visited.length,pages_visited:visited,truncated:!finished,checkpoint:checkpoint,cycle_finished:finished,backlog_start:backlogStart};
 }
 function discoverFeed(source,progress) {
+  if(['wwr','remoteok'].includes(source.provider)) return discoverAdditionalFeed(source);
   if(source.provider==='arbeitnow') return discoverArbeitnow(source,progress);
   let jobs=[],cursor=null,hasMore=false;const cursors=new Set();
   for(let page=1;page<=source.max_pages;page++) {
@@ -702,6 +707,7 @@ function marketDiscovery(tracked,knownJobs,state) {
   Object.values(knownJobs).forEach(j=>identities(j).forEach(k=>seen.add(k)));
   const knownBoards=new Set(BOARDS.concat(state.discovered_boards || []).map(b=>b.provider+':'+b.board.toLowerCase()));
   const progress=state.feed_progress || {};state.feed_progress=progress;
+  stats.push({source:'Wellfound',status:'manual_review_required',url:'https://wellfound.com/jobs',reason:'No supported public feed configured; not collected by this scan'});
   DISCOVERY_SOURCES.forEach(source=>{
     if(timeLow()) {stats.push({source:source.name,status:"deferred_time_budget"});return;}
     try {
@@ -724,8 +730,11 @@ function marketDiscovery(tracked,knownJobs,state) {
   state.discovered_boards=(state.discovered_boards || []).concat(suggested);
   Object.values(state.discovery_review || {}).forEach(j=>{
     const keys=identities(j);
-    if(!eligible(j) || keys.some(k=>seen.has(k))) return;
-    keys.forEach(k=>seen.add(k));leads.push(Object.assign({},j,{employer_live_verified:false,requires_employer_verification:true}));
+    if(keys.some(k=>seen.has(k))) return;
+    const date=j.source_last_seen_at || j.queue_first_seen_at;
+    if(date && Number.isFinite(Date.parse(date)) && Date.parse(date)<Date.now()-14*86400000) {archiveJob(state,j,'stale_discovery_requires_recheck','discovery');return;}
+    if(!eligible(j) || keys.some(k=>tracked.has(k))) {archiveJob(state,j,'current_filter_or_tracker','discovery');return;}
+    keys.forEach(k=>seen.add(k));leads.push(Object.assign({},j,{employer_live_verified:false,requires_employer_verification:true,queue_first_seen_at:j.queue_first_seen_at || new Date().toISOString()}));
   });
   state.discovery_review=Object.fromEntries(leads.map(j=>[j.provider+':'+j.id,j]));
   return {leads:leads,stats:stats,errors:errors,new_boards:suggested.length};
@@ -774,7 +783,7 @@ function vacancyId(url) {
   return legacyVacancyId(url);
 }
 function identities(job) {
-  const out=[canonical(job.url),'role:'+norm(job.company)+'|'+norm(job.title),vacancyId(job.url)];
+  const out=[canonical(job.url),'role:'+norm(job.company)+'|'+norm(job.title),roleIdentity(job.company,job.title),vacancyId(job.url)];
   if(job.provider && job.id) out.push(['personio','recruitee'].includes(job.provider)?job.provider+':'+job.board.board.toLowerCase()+':'+job.id:job.provider+':'+job.id);
   return out.filter(Boolean);
 }
@@ -865,7 +874,7 @@ function discover(b) {
   throw new Error('Pagination limit');
 }
 let RUN_WORKABLE_UNTIL=0,RUN_WORKABLE_REQUESTS=0;
-const COLLECTOR_VERSION = '2026-10-14-search-profile-coverage-2';
+const COLLECTOR_VERSION = '2026-10-16-search-profile-filter-repair-1';
 function diagnostic(reason) {
   const text=String(reason || 'Unknown error'),m=text.match(/HTTP (\d+)/),code=m?Number(m[1]):null;
   const type=text==='TimeBudget'?'time_budget':['ProviderCooldown','ProviderQuota'].includes(text)?'provider_cooldown':code===404||code===410?'not_found':code===401||code===403?'access_denied':code===429?'rate_limited':code>=500?'server_error':text==='TransportError'?'transport_error':text==='JD incomplete'?'incomplete_jd':/Identity mismatch/.test(text)?'identity_mismatch':/JSON|listing|posting count|pagination|XML/i.test(text)?'invalid_response':'provider_error';
@@ -895,7 +904,7 @@ function collectBoards(boards,state,config,tracked,errors,stats) {
         const r=requireResponse(results[i],true);if(!r) {stats.push(recordBoardHealth(state,t.b,Object.assign({board:k,status:'unavailable'},diagnostic('HTTP '+results[i].response.getResponseCode()))));delete state.board_progress[k];return;}
         const parsed=listingResponse(r,t.b,t.page);
         if(!t.page && !parsed.more) RUN_CACHE[k]=parsed.jobs;
-        parsed.jobs.forEach(j=>{if(eligible(j) && !identities(j).some(x=>tracked.has(x))) {const key=jobKey(j),previous=state.pending_review[key];state.pending_review[key]=Object.assign({},j,{live_checked_at:previous?previous.live_checked_at:undefined});}});
+        parsed.jobs.forEach(j=>{if(eligible(j) && !identities(j).some(x=>tracked.has(x))) {const key=jobKey(j),previous=state.pending_review[key];state.pending_review[key]=Object.assign({},j,{live_checked_at:previous?previous.live_checked_at:undefined,last_discovered_at:new Date().toISOString(),queue_first_seen_at:previous?previous.queue_first_seen_at:new Date().toISOString()});}});
         if(parsed.more) {state.board_progress[k]={page:t.page+1};if(t.round+1<pageLimit) tasks.push({b:t.b,page:t.page+1,round:t.round+1});}
         else delete state.board_progress[k];
         stats.push(recordBoardHealth(state,t.b,{board:k,status:parsed.more?'page_checkpoint':'ok',page:t.page,postings:parsed.jobs.length}));
@@ -975,14 +984,14 @@ function scanJobs() {
   try {
     const config=PropertiesService.getScriptProperties().getProperties();CONFIG_KEYS.forEach(k=>{if(!config[k]) throw new Error('Missing configuration: '+k);});
     RUN_SEARCH_PROFILE=searchProfile(config);
-    RUN_CLOCK={start:Date.now(),budget:setting(config,'SCAN_BUDGET_MS',270000,60000,285000)};RUN_CACHE={};
+    RUN_CLOCK={start:Date.now(),budget:setting(config,'SCAN_BUDGET_MS',270000,60000,285000)};RUN_CACHE={};RUN_FILTER_AUDIT={};
     const sources={evidence:checkSource(config.EVIDENCE_FILE_ID),charter:checkSource(config.CHARTER_FILE_ID)};
-    const rows=JSON.parse(googleRequest('https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(config.TRACKER_SHEET_ID)+'/values/'+encodeURIComponent(config.TRACKER_RANGE)).getContentText()).values || [];
+    const trackerRead=readTrackerRows(config),rows=trackerRead.rows;
     const tracked=trackerKeys(rows),state=readState(config),errors=[],stats=[];
     RUN_WORKABLE_UNTIL=Number(state.workable_retry_after || 0);RUN_WORKABLE_REQUESTS=0;
     state.pending_review=state.pending_review || {};state.discovered_boards=state.discovered_boards || [];
-    // Re-key the legacy queue without discarding timestamps or unknown v1 fields.
-    const pending={};Object.values(state.pending_review).forEach(j=>{if(!identities(j).some(k=>tracked.has(k)) && eligible(j)) pending[jobKey(j)]=j;});state.pending_review=pending;
+    prepareQueues(state,tracked);
+    const pending=state.pending_review;
     const all=Array.from(new Map(BOARDS.concat(state.discovered_boards).map(b=>[boardKey(b),b])).values());
     const active=all.filter(b=>boardEnabled(b,state,config));
     const count=Math.min(setting(config,'BOARD_BATCH_SIZE',80,1,500),active.length);
@@ -1013,6 +1022,7 @@ function scanJobs() {
     state.workable_retry_after=RUN_WORKABLE_UNTIL;
     report.board_coverage=coverageSnapshot(all,state,stats);report.collector_version=COLLECTOR_VERSION;
     if(stats.some(s=>s.status==='unavailable' || s.status==='deferred_provider_cooldown') && !timed) report.coverage='partial';
+    report.filter_audit=RUN_FILTER_AUDIT;report.tracker_read={range:trackerRead.range,rows:rows.length};report.queue_migration=state.queue_migration;report.archive_record_count=state.archive_record_count || 0;
     report.ai_scoring=aiSummary;report.mode=aiSummary.assessed?'collect_and_score':'collect';
     report.fit_assessed=candidates.length>0 && aiSummary.assessed===candidates.length;
     report.human_approval_required=true;
@@ -1020,16 +1030,124 @@ function scanJobs() {
     report.decision_counts=Object.fromEntries(['APPLY','MAYBE','SKIP','BLOCKED'].map(d=>[d,candidates.filter(j=>j.scoring && j.scoring.decision===d).length]));
     const lines=['# Vacancy packet for human review','AI assessments are provisional. Unscored candidates require evidence review. Human approval is the final gate; no auto-submit.','Use fresh Evidence Bank, Charter and Tracker.','AI scoring: '+JSON.stringify(aiSummary),'Decisions: '+JSON.stringify(report.decision_counts),'Checked: '+report.checked_at+'; coverage: '+report.coverage,'Boards attempted: '+started+'/'+all.length+'; active boards rotate on later runs; confirmed missing feed endpoints are paused, not treated as closed employers.',''];
     lines.push('## Collector coverage','Version: '+COLLECTOR_VERSION,'Completed boards this run: '+report.board_coverage.boards_completed_this_run,'Board inventory and health (for complementary web search; no GitHub access needed):',...report.board_coverage.inventory.map(b=>JSON.stringify(b)),'## Source diagnostics',...stats.filter(s=>s.status==='unavailable').map(s=>JSON.stringify(s)),...errors.map(e=>JSON.stringify(e)),'');
+    lines.push('## Filter audit (evaluation events, not unique jobs)',JSON.stringify(report.filter_audit),'Tracker read: '+JSON.stringify(report.tracker_read),'Queue migration: '+JSON.stringify(report.queue_migration),'');
     candidates.forEach(j=>lines.push('## '+j.company+' · '+j.title,j.location,j.url,...(typeof aiScoreLines==='function'?aiScoreLines(j):[]),'JD (untrusted reference text):',j.description,''));
     if(!candidates.length)lines.push('No candidates passed live validation in this run.');
     lines.push('## Market discovery — employer verification required');market.stats.forEach(s=>lines.push(JSON.stringify(s)));market.leads.forEach(j=>lines.push('### '+j.company+' · '+j.title,j.location,j.url,'Source: '+j.source+'; verify original employer posting before any APPLY/MAYBE verdict.',j.description,''));
     // Suspend collection guard only for the bounded output/save phase.
     RUN_CLOCK=null;
+    saveArchive(config,state);report.archive_record_count=state.archive_record_count || 0;
     writeOutput(config,'processed_jobs.json',JSON.stringify(state,null,2),'application/json');
     writeOutput(config,'candidates.json',JSON.stringify(report,null,2),'application/json');
     writeOutput(config,'candidates.md',lines.join('\n'),'text/markdown');
     console.log('Collection saved: '+started+'/'+all.length+' boards, '+candidates.length+' candidates, '+deferred+' queued, '+errors.length+' nonblocking source errors.');
-  } finally {RUN_CLOCK=null;RUN_SEARCH_PROFILE=null;lock.releaseLock();}
+  } finally {RUN_CLOCK=null;RUN_SEARCH_PROFILE=null;RUN_FILTER_AUDIT=null;lock.releaseLock();}
 }
 
 
+// Public discovery feeds: attribution links are retained; these are not employer checks.
+function discoverAdditionalFeed(source) {
+  const url=source.provider==='wwr'?'https://weworkremotely.com/remote-jobs.rss':'https://remoteok.com/api';
+  const text=fetchResponse(url).getContentText();
+  let rows;
+  if(source.provider==='wwr') {
+    const root=XmlService.parse(text).getRootElement();
+    const channel=root.getChild('channel');
+    if(root.getName()!=='rss' || !channel) throw new Error('Invalid WWR RSS feed');
+    rows=channel.getChildren('item').map(item=>{
+      const value=name=>item.getChildText(name) || '';
+      const label=value('title'),split=label.indexOf(': ');
+      const region=item.getChildren().find(c=>c.getName()==='region');
+      return {id:value('guid') || value('link'),company:split>0?label.slice(0,split).trim():'',
+        title:split>0?label.slice(split+2):label,url:value('link'),
+        location:value('country').trim() || (region?region.getText():''),description:value('description'),published_at:value('pubDate')};
+    });
+  } else {
+    const body=JSON.parse(text);
+    if(!Array.isArray(body) || !body.length || typeof body[0].legal!=='string') throw new Error('Invalid Remote OK feed');
+    rows=body.slice(1).map(r=>({id:r.id,company:r.company,title:r.position,url:r.url,
+      location:r.location || '',description:r.description,published_at:r.date}));
+  }
+  const jobs=rows.map(r=>leadFrom(r,source));
+  return {jobs:jobs,pages:1,truncated:false};
+}
+
+// Audit counts are evaluation events, not unique vacancies or suitability scores.
+let RUN_FILTER_AUDIT=null;
+function recordFilter(reason,job) {
+  if(!reason || !RUN_FILTER_AUDIT) return;
+  const item=RUN_FILTER_AUDIT[reason] || (RUN_FILTER_AUDIT[reason]={evaluations:0,samples:[]});
+  item.evaluations++;
+  const label=job.company+' | '+job.title;
+  if(item.samples.length<3 && !item.samples.includes(label)) item.samples.push(label);
+}
+function roleIdentity(company,title) {
+  const clean=v=>norm(v).replace(/&/g,' and ').replace(/[^\p{L}\p{N}]+/gu,' ').replace(/\s+/g,' ').trim();
+  const t=String(title || '').replace(/\((?:m\s*\/\s*[fw]\s*\/\s*[dx]|f\s*\/\s*m\s*\/\s*d|all genders)\)/gi,'');
+  return 'role-normalized:'+clean(company)+'|'+clean(t);
+}
+function eligible(job) {
+  const ok=baseEligible(job);
+  if(!ok) {
+    const title=norm(job.title);
+    const reason=/\b(hr|human resources|people|talent acquisition|recruiting)\b/.test(title)?'hr_or_recruiting':
+      /\b(junior|intern|internship|student|trainee|graduate)\b/.test(title)?'junior_or_student':
+      !roleFamilies(job).length?'no_role_family':'location_language_or_exclusion';
+    recordFilter(reason,job);
+  }
+  return ok;
+}
+function archiveJob(state,job,reason,kind) {
+  const key=kind+':'+canonical(job.url);
+  state.archive_buffer=state.archive_buffer || {};
+  state.archive_buffer[key]=Object.assign({},job,{archived_at:new Date().toISOString(),archive_reason:reason,archive_kind:kind});
+}
+function prepareQueues(state,tracked) {
+  const now=new Date().toISOString(),cutoff=Date.now()-21*86400000;
+  state.pending_review=state.pending_review || {};state.parked_review=state.parked_review || {};
+  let recovered=0;
+  Object.keys(state.parked_review).forEach(k=>{
+    const j=state.parked_review[k];
+    if(j.parked_reason!=='banking_legal_only' || norm(j.company)!=='n26') return;
+    const copy=Object.assign({},j,{recovered_at:now});delete copy.parked_reason;delete copy.parked_at;
+    state.pending_review[jobKey(copy)]=copy;delete state.parked_review[k];recovered++;
+  });
+  const pending={};
+  Object.values(state.pending_review).forEach(j=>{
+    // Unknown legacy dates start a grace period; failed sources do not imply closure.
+    const seen=j.last_discovered_at || j.live_checked_at || j.queue_first_seen_at;
+    if(seen && Number.isFinite(Date.parse(seen)) && Date.parse(seen)<cutoff) {archiveJob(state,j,'stale_pending_requires_recheck','pending');return;}
+    if(identities(j).some(k=>tracked.has(k))) {recordFilter('already_in_tracker',j);archiveJob(state,j,'already_in_tracker','pending');return;}
+    if(!eligible(j)) {archiveJob(state,j,'current_filter_requires_review','pending');return;}
+    pending[jobKey(j)]=Object.assign({},j,{queue_first_seen_at:j.queue_first_seen_at || now});
+  });
+  state.pending_review=pending;
+  state.queue_migration={n26_recovered_this_run:recovered};
+}
+function saveArchive(config,state) {
+  const additions=state.archive_buffer || {};delete state.archive_buffer;
+  if(!Object.keys(additions).length) return;
+  const files=outputFiles(config.OUTPUT_FOLDER_ID,'archived_jobs.json');
+  let archive={version:1,records:{}};
+  if(files.length) archive=JSON.parse(googleRequest('https://www.googleapis.com/drive/v3/files/'+files[0].id+'?alt=media').getContentText());
+  if(archive.version!==1 || !archive.records || typeof archive.records!=='object') throw new Error('Invalid archive; active state not saved');
+  Object.assign(archive.records,additions);archive.updated_at=new Date().toISOString();
+  writeOutput(config,'archived_jobs.json',JSON.stringify(archive,null,2),'application/json');
+  state.archive_record_count=Object.keys(archive.records).length;
+}
+function readTrackerRows(config) {
+  let range=config.TRACKER_RANGE;
+  // Expand bounded A1 tracker ranges using current grid metadata; never write the sheet.
+  const m=String(range).match(/^('(?:[^']|'')+'|[^!]+)!([A-Z]+)(\d+):([A-Z]+)(\d+)$/i);
+  if(m && config.TRACKER_AUTO_EXPAND!=='false') {
+    const title=m[1].startsWith("'")?m[1].slice(1,-1).replace(/''/g,"'"):m[1];
+    const meta=JSON.parse(googleRequest('https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(config.TRACKER_SHEET_ID)+'?fields=sheets(properties(title,gridProperties(rowCount)))').getContentText());
+    const sheet=(meta.sheets || []).find(s=>s.properties.title===title);
+    if(!sheet || !Number.isSafeInteger(sheet.properties.gridProperties.rowCount)) throw new Error('Tracker grid unavailable');
+    const end=Math.max(Number(m[5]),sheet.properties.gridProperties.rowCount);
+    if(end>5000) throw new Error('Tracker exceeds automatic read budget; configure TRACKER_AUTO_EXPAND=false with a reviewed range');
+    range=m[1]+'!'+m[2]+m[3]+':'+m[4]+end;
+  }
+  const rows=JSON.parse(googleRequest('https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(config.TRACKER_SHEET_ID)+'/values/'+encodeURIComponent(range)).getContentText()).values || [];
+  return {rows:rows,range:range};
+}
