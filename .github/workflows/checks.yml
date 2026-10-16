@@ -16,4 +16,4 @@ jobs:
       - run: node tests/board_audit.test.cjs
       - run: node tests/discovery_feeds.test.cjs
       - run: node tests/filter_repair.test.cjs
-
+      - run: node tests/expanded_coverage.test.cjs

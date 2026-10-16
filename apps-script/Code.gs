@@ -391,7 +391,9 @@ const DISCOVERY_SOURCES = [
   {provider:'arbeitnow',name:'Arbeitnow',max_pages:10,documentation:'https://www.arbeitnow.com/blog/job-board-api'},
   {provider:'jobicy',name:'Jobicy',max_pages:10,documentation:'https://jobicy.com/jobs-rss-feed',delay_hours:3,window_days:7},
   {provider:'wwr',name:'We Work Remotely',max_pages:1,documentation:'https://weworkremotely.com/remote-job-rss-feed'},
-  {provider:'remoteok',name:'Remote OK',max_pages:1,documentation:'https://remoteok.com/api'}
+  {provider:'remoteok',name:'Remote OK',max_pages:1,documentation:'https://remoteok.com/api'},
+  {provider:'workingnomads',name:'Working Nomads',max_pages:1,documentation:'https://www.workingnomads.com/api/exposed_jobs/'},
+  {provider:'himalayas',name:'Himalayas',max_pages:6,documentation:'https://himalayas.app/docs/remote-jobs-api',delay_hours:24}
 ];
 const CONFIG_KEYS = ['EVIDENCE_FILE_ID','CHARTER_FILE_ID','TRACKER_SHEET_ID','TRACKER_RANGE','OUTPUT_FOLDER_ID'];
 let RUN_SEARCH_PROFILE=null;
@@ -664,6 +666,7 @@ function discoverArbeitnow(source,progress) {
   return {jobs:jobs,pages:visited.length,pages_visited:visited,truncated:!finished,checkpoint:checkpoint,cycle_finished:finished,backlog_start:backlogStart};
 }
 function discoverFeed(source,progress) {
+  if(['workingnomads','himalayas'].includes(source.provider)) return discoverExpandedFeed(source,progress);
   if(['wwr','remoteok'].includes(source.provider)) return discoverAdditionalFeed(source);
   if(source.provider==='arbeitnow') return discoverArbeitnow(source,progress);
   let jobs=[],cursor=null,hasMore=false;const cursors=new Set();
@@ -723,7 +726,7 @@ function marketDiscovery(tracked,knownJobs,state) {
         });
       });
       if(feed.checkpoint) progress[source.provider]=feed.checkpoint;
-      stats.push({source:source.name,postings:feed.jobs.length,companies:new Set(feed.jobs.map(j=>norm(j.company))).size,pages:feed.pages,pages_visited:feed.pages_visited || null,truncated:feed.truncated,next_backlog_page:feed.checkpoint?feed.checkpoint.next_page:null,cycle_finished:feed.cycle_finished || false,role_location_matches:matched,role_families:families,new_leads:newLeads,refreshed_leads:kept-newLeads});
+      stats.push({source:source.name,postings:feed.jobs.length,companies:new Set(feed.jobs.map(j=>norm(j.company))).size,pages:feed.pages,pages_visited:feed.pages_visited || null,truncated:feed.truncated,next_backlog_page:feed.checkpoint?feed.checkpoint.next_page:null,cycle_finished:feed.cycle_finished || false,cached_daily:feed.cached_daily || false,coverage_window:feed.coverage_window || null,expired_skipped:feed.expired_skipped || 0,role_location_matches:matched,role_families:families,new_leads:newLeads,refreshed_leads:kept-newLeads});
     } catch(e) {if(e.message==='TimeBudget') {stats.push({source:source.name,status:'deferred_time_budget'});return;} errors.push(Object.assign({stage:'discovery',board:source.provider},diagnostic(e.message)));stats.push({source:source.name,status:'error'});}
   });
   // These are public ATS references, not trusted evidence or fit decisions.
@@ -874,7 +877,7 @@ function discover(b) {
   throw new Error('Pagination limit');
 }
 let RUN_WORKABLE_UNTIL=0,RUN_WORKABLE_REQUESTS=0;
-const COLLECTOR_VERSION = '2026-10-16-search-profile-filter-repair-1';
+const COLLECTOR_VERSION = '2026-10-16-search-profile-coverage-expanded-2';
 function diagnostic(reason) {
   const text=String(reason || 'Unknown error'),m=text.match(/HTTP (\d+)/),code=m?Number(m[1]):null;
   const type=text==='TimeBudget'?'time_budget':['ProviderCooldown','ProviderQuota'].includes(text)?'provider_cooldown':code===404||code===410?'not_found':code===401||code===403?'access_denied':code===429?'rate_limited':code>=500?'server_error':text==='TransportError'?'transport_error':text==='JD incomplete'?'incomplete_jd':/Identity mismatch/.test(text)?'identity_mismatch':/JSON|listing|posting count|pagination|XML/i.test(text)?'invalid_response':'provider_error';
@@ -1150,4 +1153,86 @@ function readTrackerRows(config) {
   }
   const rows=JSON.parse(googleRequest('https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(config.TRACKER_SHEET_ID)+'/values/'+encodeURIComponent(range)).getContentText()).values || [];
   return {rows:rows,range:range};
+}
+
+/* Public discovery only. No paid services, applications or employer-verification claims. */
+function discoveryDay() {return new Date().toISOString().slice(0,10);}
+function discoveryTimestamp(value) {
+  if(value==null || value==='') return null;
+  const n=Number(value),ms=Number.isFinite(n)?(n<1e12?n*1000:n):Date.parse(value);
+  if(!Number.isFinite(ms)) throw new Error('Invalid discovery timestamp');
+  return ms;
+}
+function expandedLead(raw,source) {
+  let row;
+  if(source.provider==='workingnomads') {
+    const match=String(raw.url).match(/^https:\/\/www\.workingnomads\.com\/job\/go\/(\d+)\/?$/);
+    if(!match) throw new Error('Invalid Working Nomads listing URL');
+    row={id:match[1],company:raw.company_name,title:raw.title,url:raw.url,location:raw.location || '',description:raw.description,published_at:raw.pub_date};
+  } else {
+    if(!Array.isArray(raw.locationRestrictions) || !/^https:\/\/himalayas\.app\/companies\//.test(raw.applicationLink || '')) throw new Error('Invalid Himalayas location or URL');
+    const countries=raw.locationRestrictions.map(c=>{
+      const name=typeof c==='string'?c:c && c.name;
+      if(typeof name!=='string' || !name.trim()) throw new Error('Invalid Himalayas country');
+      return name;
+    });
+    row={id:raw.guid,company:raw.companyName,title:raw.title,url:raw.applicationLink,location:countries.length?countries.join('; '):'Worldwide',description:raw.description,published_at:raw.pubDate};
+  }
+  const job=leadFrom(row,{provider:'remoteok',name:source.name});
+  job.provider=source.provider;job.source_homepage=source.provider==='himalayas'?'https://himalayas.app':'https://www.workingnomads.com';
+  if(source.provider==='himalayas') Object.assign(job,{
+    source_location_restrictions:raw.locationRestrictions,source_timezone_restrictions:raw.timezoneRestrictions || null,
+    source_salary:{min:raw.minSalary ?? null,max:raw.maxSalary ?? null,currency:raw.currency || null,period:raw.salaryPeriod || null},
+    source_expiry_at:raw.expiryDate ?? null,source_delay_hours:24,
+    application_route:'Use original Himalayas applicationLink; verify employer facts before deciding'
+  });
+  return job;
+}
+function himalayasPlan() {
+  const profile=typeof RUN_SEARCH_PROFILE!=='undefined'?RUN_SEARCH_PROFILE:null;
+  const names={germany:'DE',deutschland:'DE',spain:'ES',italy:'IT',france:'FR',netherlands:'NL',portugal:'PT',austria:'AT',ireland:'IE',belgium:'BE',poland:'PL',sweden:'SE',denmark:'DK',finland:'FI',norway:'NO',switzerland:'CH','united kingdom':'GB','united states':'US',canada:'CA'};
+  const location=profile?norm(profile.candidate_location):'germany';
+  const country=names[location] || (/^[a-z]{2}$/.test(location)?location.toUpperCase():'');
+  const queries=profile?profile.role_keywords:['operations','strategy','enablement','delivery','partnerships','music'];
+  return {country:country,queries:Array.from(new Set(queries)).slice(0,12)};
+}
+function discoverExpandedFeed(source,progress) {
+  const prior=progress || {},day=discoveryDay();
+  const plan=source.provider==='himalayas'?himalayasPlan():null;
+  const fingerprint=JSON.stringify(plan);
+  if(prior.last_success_day===day && prior.plan===fingerprint) return {jobs:[],pages:0,truncated:!!prior.truncated,cached_daily:true,checkpoint:prior};
+  if(source.provider==='workingnomads') {
+    const rows=JSON.parse(fetchResponse('https://www.workingnomads.com/api/exposed_jobs/').getContentText());
+    if(!Array.isArray(rows)) throw new Error('Invalid Working Nomads feed');
+    const jobs=rows.map(r=>expandedLead(r,source));
+    // No pagination contract: this is a current public window, never full-market coverage.
+    return {jobs:jobs,pages:1,truncated:true,coverage_window:'provider_public_window',checkpoint:{last_success_day:day,plan:fingerprint,truncated:true}};
+  }
+  if(!plan.queries.length) throw new Error('No Himalayas search queries');
+  const saved=prior.plan===fingerprint?prior:{},positions=Object.assign({},saved.next_pages || {});
+  const offset=Number.isSafeInteger(saved.query_offset)?saved.query_offset%plan.queries.length:0;
+  const jobs=[],seen=new Set(),visited=[];let expired=0;
+  const max=Math.min(6,source.max_pages),queryCount=Math.min(3,plan.queries.length,Math.floor(max/2));
+  for(let i=0;i<queryCount;i++) {
+    const query=plan.queries[(offset+i)%plan.queries.length];
+    const next=positions[query] || 2;
+    if(!Number.isSafeInteger(next) || next<2 || next>5000) throw new Error('Invalid Himalayas checkpoint');
+    let nextPage=next;
+    for(const page of [1,next]) {
+      const url='https://himalayas.app/jobs/api/search?q='+encodeURIComponent(query)+(plan.country?'&country='+plan.country:'')+'&sort=recent&page='+page;
+      const body=JSON.parse(fetchResponse(url).getContentText());
+      if(!Array.isArray(body.jobs) || !Number.isSafeInteger(body.totalCount) || body.totalCount<0 || !Number.isSafeInteger(body.limit) || body.limit<1 || body.limit>20 || body.jobs.length>body.limit || body.offset!==(page-1)*body.limit) throw new Error('Invalid Himalayas page metadata');
+      const converted=body.jobs.map(r=>{
+        const end=discoveryTimestamp(r.expiryDate);
+        if(end!==null && end<Date.now()) {expired++;return null;}
+        return expandedLead(r,source);
+      }).filter(Boolean);
+      converted.forEach(j=>{if(!seen.has(j.id)){seen.add(j.id);jobs.push(j);}});
+      visited.push({query:query,country:plan.country || null,page:page,total:body.totalCount});
+      if(page*body.limit>=body.totalCount) {nextPage=2;break;}
+      if(page!==1) nextPage=page+1;
+    }
+    positions[query]=nextPage;
+  }
+  return {jobs:jobs,pages:visited.length,truncated:true,pages_visited:visited,expired_skipped:expired,coverage_window:'rotating_search_queries',checkpoint:{last_success_day:day,plan:fingerprint,query_offset:(offset+queryCount)%plan.queries.length,next_pages:positions,truncated:true}};
 }
